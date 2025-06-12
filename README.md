@@ -40,117 +40,91 @@ Each power is represented by a `DiplomacyAgent` with:
 - **Yearly Consolidation**: Automatic summarization of old entries to prevent context overflow
 - **Smart Context Building**: Only relevant history provided to LLMs
 
-## How AI Agents Work
+## Architecture for Human-Played Game
 
-The following diagram illustrates the complete information flow and decision-making process for each AI agent:
+The following diagram illustrates the information flow for a game played by humans:
 
 ```mermaid
 graph TB
     %% Game State Sources
     subgraph "Game State Information"
         GS[Game State<br/>- Unit Positions<br/>- Supply Centers<br/>- Power Status]
-        GH[Game History<br/>- Past Orders<br/>- Past Messages<br/>- Phase Results]
+        GH[Game History<br/>- Past Orders<br/>- Past Messages<br/>- Phase Results<br/>- Player Plans]
         PS[Phase Summary<br/>- Successful Moves<br/>- Failed Moves<br/>- Board Changes]
     end
-    
-    %% Agent Internal State
+
+    %% Agent Internal State (Simplified)
     subgraph "Agent State (DiplomacyAgent)"
-        GOALS[Dynamic Goals<br/>- Expansion targets<br/>- Alliance priorities<br/>- Defense needs]
-        REL[Relationships<br/>Enemy ↔ Ally Scale]
-        
-        subgraph "Memory System"
-            DIARY[Private Diary<br/>Phase-prefixed entries]
-            
-            ND[Negotiation Diary<br/>- Message analysis<br/>- Trust assessment<br/>- Relationship changes]
-            OD[Order Diary<br/>- Strategic reasoning<br/>- Risk/reward analysis]
-            PRD[Phase Result Diary<br/>- Outcome analysis<br/>- Betrayal detection<br/>- Success evaluation]
-            
-            CONS[Diary Consolidation<br/>Yearly summaries<br/>via Gemini Flash]
-        end
-        
-        JOURNAL[Private Journal<br/>Debug logs only]
+        AGENT_GOALS[User-Defined Goals]
+        AGENT_REL[User-Defined Relationships]
+        AGENT_JOURNAL[Private Journal<br/>(Manual User Notes)]
+        AGENT_DIARY[Private Diary<br/>(Manual User Notes)]
     end
-    
-    %% Context Building
-    subgraph "Context Construction"
-        POC[Possible Order Context<br/>- BFS pathfinding<br/>- Nearest enemies<br/>- Uncontrolled SCs<br/>- Adjacent territories]
-        
-        BCP[build_context_prompt<br/>Assembles all info]
-        
-        RECENT[Recent Context<br/>- Last 40 diary entries<br/>- Current relationships<br/>- Active goals]
+
+    %% Human Player Interaction
+    subgraph "Human Player Interface (`human_player_interface.py`)"
+        HPI[Human Input Module<br/>- Displays Game Info<br/>- Prompts for Decisions]
     end
-    
-    %% LLM Interactions
-    subgraph "LLM Decision Points"
-        INIT_LLM[Initialization<br/>Set initial goals<br/>& relationships]
-        
-        NEG_LLM[Negotiation<br/>Generate messages<br/>Update relationships]
-        
-        PLAN_LLM[Planning<br/>Strategic directives]
-        
-        ORD_LLM[Order Generation<br/>Choose moves]
-        
-        STATE_LLM[State Update<br/>Revise goals<br/>& relationships]
+
+    subgraph "User Decision Inputs"
+        USER_ORDERS[User Enters Orders]
+        USER_MESSAGES[User Sends Messages]
+        USER_PLANS[User Defines Plans]
     end
-    
-    %% Prompt Templates
-    subgraph "Prompt Templates"
-        PROMPTS[Power-specific prompts<br/>+ Instruction templates<br/>+ Context templates]
+
+    %% Supporting Context for User
+    subgraph "Context for Human Player"
+        POSSIBLE_ORDERS_CTX[Possible Order Context<br/>(Displayed to User)]
     end
-    
+
+    %% Core Game Engine (Conceptual)
+    GAME_ENGINE[Game Engine<br/>(Processes Orders, Updates State)]
+
     %% Information Flow
-    GS --> BCP
-    GH --> BCP
-    PS --> STATE_LLM
-    
-    GOALS --> BCP
-    REL --> BCP
-    DIARY --> RECENT
-    RECENT --> BCP
-    
-    POC --> BCP
-    BCP --> NEG_LLM
-    BCP --> ORD_LLM
-    BCP --> PLAN_LLM
-    
-    PROMPTS --> INIT_LLM
-    PROMPTS --> NEG_LLM
-    PROMPTS --> PLAN_LLM
-    PROMPTS --> ORD_LLM
-    PROMPTS --> STATE_LLM
-    
-    %% Diary Updates
-    NEG_LLM --> ND
-    ORD_LLM --> OD
-    PS --> PRD
-    
-    ND --> DIARY
-    OD --> DIARY
-    PRD --> DIARY
-    
-    %% State Updates
-    INIT_LLM --> GOALS
-    INIT_LLM --> REL
-    NEG_LLM --> REL
-    STATE_LLM --> GOALS
-    STATE_LLM --> REL
-    
-    %% Consolidation
-    DIARY -->|Every 2 years| CONS
-    CONS -->|Summarized| DIARY
-    
+
+    %% Game Info to Human Interface
+    GS --> HPI
+    GH --> HPI
+    PS --> HPI
+    GS --> UTILS_GATHER_ORDERS[utils.gather_possible_orders]
+    UTILS_GATHER_ORDERS --> POSSIBLE_ORDERS_CTX
+    POSSIBLE_ORDERS_CTX --> HPI
+
+    %% Human Decisions via Interface
+    HPI --> USER_ORDERS
+    HPI --> USER_MESSAGES
+    HPI --> USER_PLANS
+
+    %% User Decisions into the Game
+    USER_ORDERS -->|Set by lm_game.py| GAME_ENGINE
+    USER_MESSAGES -->|Added by negotiations.py| GH
+    USER_MESSAGES -->|Added by negotiations.py| game_messages[Game Messages Log]
+    USER_PLANS -->|Added by planning.py| GH
+
+    %% Agent state can be manually updated by user (conceptual, not direct system link for now)
+    %% AGENT_GOALS, AGENT_REL, AGENT_JOURNAL, AGENT_DIARY are part of the 'agents' dict in lm_game.py
+
+    %% Game Engine updates Game State
+    GAME_ENGINE --> GS
+    GAME_ENGINE --> GH
+    GAME_ENGINE --> PS
+
+
     %% Styling
     classDef gameState fill:#e74c3c,stroke:#333,stroke-width:2px,color:#fff
     classDef agentState fill:#3498db,stroke:#333,stroke-width:2px,color:#fff
-    classDef context fill:#2ecc71,stroke:#333,stroke-width:2px,color:#fff
-    classDef llm fill:#f39c12,stroke:#333,stroke-width:2px,color:#fff
-    classDef memory fill:#9b59b6,stroke:#333,stroke-width:2px,color:#fff
-    
+    classDef humanInterface fill:#2ecc71,stroke:#333,stroke-width:2px,color:#fff
+    classDef userInputs fill:#f39c12,stroke:#333,stroke-width:2px,color:#fff
+    classDef contextDisplay fill:#9b59b6,stroke:#333,stroke-width:2px,color:#fff
+    classDef gameEngine fill:#7f8c8d,stroke:#333,stroke-width:2px,color:#fff
+
+
     class GS,GH,PS gameState
-    class GOALS,REL,JOURNAL agentState
-    class POC,BCP,RECENT context
-    class INIT_LLM,NEG_LLM,PLAN_LLM,ORD_LLM,STATE_LLM llm
-    class DIARY,ND,OD,PRD,CONS memory
+    class AGENT_GOALS,AGENT_REL,AGENT_JOURNAL,AGENT_DIARY agentState
+    class HPI humanInterface
+    class USER_ORDERS,USER_MESSAGES,USER_PLANS userInputs
+    class POSSIBLE_ORDERS_CTX contextDisplay
+    class GAME_ENGINE,game_messages,UTILS_GATHER_ORDERS gameEngine
 ```
 
 ### Key Components Explained

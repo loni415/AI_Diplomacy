@@ -19,12 +19,13 @@ from diplomacy import Game
 from diplomacy.engine.message import GLOBAL, Message
 from diplomacy.utils.export import to_saved_game_format
 
-from ai_diplomacy.clients import load_model_client
+# from ai_diplomacy.clients import load_model_client # Removed
 from ai_diplomacy.utils import (
-    get_valid_orders,
+    get_valid_orders, # Will be reviewed later - might be removed if no AI players
     gather_possible_orders,
-    assign_models_to_powers,
+    # assign_models_to_powers, # Removed
 )
+from ai_diplomacy.human_player_interface import get_human_orders
 from ai_diplomacy.negotiations import conduct_negotiations
 from ai_diplomacy.planning import planning_phase
 from ai_diplomacy.game_history import GameHistory
@@ -67,15 +68,15 @@ def parse_arguments():
         default="",
         help="Output filename for the final JSON result. If not provided, a timestamped name will be generated.",
     )
-    parser.add_argument(
-        "--models",
-        type=str,
-        default="",
-        help=(
-            "Comma-separated list of model names to assign to powers in order. "
-            "The order is: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY."
-        ),
-    )
+    # parser.add_argument( # Removed --models argument
+    #     "--models",
+    #     type=str,
+    #     default="",
+    #     help=(
+    #         "Comma-separated list of model names to assign to powers in order. "
+    #         "The order is: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY."
+    #     ),
+    # )
     parser.add_argument(
         "--planning_phase", 
         action="store_true",
@@ -89,13 +90,9 @@ async def main():
     max_year = args.max_year
 
     logger.info(
-        "Starting a new Diplomacy game for testing with multiple LLMs, now async!"
+        "Starting a new Diplomacy game, configured for human players."
     )
     start_whole = time.time()
-
-    model_error_stats = defaultdict(
-        lambda: {"conversation_errors": 0, "order_decoding_errors": 0}
-    )
 
     # Create a fresh Diplomacy game
     game = Game()
@@ -129,47 +126,54 @@ async def main():
     # Use provided output filename or generate one based on the timestamp
     game_file_path = args.output if args.output else f"{result_folder}/lmvsgame.json"
     overview_file_path = f"{result_folder}/overview.jsonl"
-    # == Add LLM Response Log Path ==
-    llm_log_file_path = f"{result_folder}/llm_responses.csv"
+    # == Add LLM Response Log Path == # This can be repurposed for general human action logs if needed, or removed.
+    # For now, let's assume general_log_file_path covers enough.
+    # llm_log_file_path = f"{result_folder}/llm_responses.csv" # Removed specific LLM log path
 
-    # Handle power model mapping
-    if args.models:
-        # Expected order: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY
-        powers_order = [
-            "AUSTRIA",
-            "ENGLAND",
-            "FRANCE",
-            "GERMANY",
-            "ITALY",
-            "RUSSIA",
-            "TURKEY",
-        ]
-        provided_models = [name.strip() for name in args.models.split(",")]
-        if len(provided_models) != len(powers_order):
-            logger.error(
-                f"Expected {len(powers_order)} models for --power-models but got {len(provided_models)}. Exiting."
-            )
-            return
-        game.power_model_map = dict(zip(powers_order, provided_models))
-    else:
-        game.power_model_map = assign_models_to_powers()
+    # Handle power model mapping - Removed
+    # if args.models:
+    #     # Expected order: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY
+    #     powers_order = [
+    #         "AUSTRIA",
+    #         "ENGLAND",
+    #         "FRANCE",
+    #         "GERMANY",
+    #         "ITALY",
+    #         "RUSSIA",
+    #         "TURKEY",
+    #     ]
+    #     provided_models = [name.strip() for name in args.models.split(",")]
+    #     if len(provided_models) != len(powers_order):
+    #         logger.error(
+    #             f"Expected {len(powers_order)} models for --power-models but got {len(provided_models)}. Exiting."
+    #         )
+    #         return
+    #     game.power_model_map = dict(zip(powers_order, provided_models))
+    # else:
+    #     # game.power_model_map = assign_models_to_powers() # Removed
+    #     # For a human-only game, or human-primary game, we can just iterate available powers.
+    #     # If specific powers need to be designated as human/AI, this will need new config.
+    #     # For now, assume all powers will have an agent, and human interaction is gated by human_player_name.
+    #     pass
+
 
     # == Goal 1: Centralize Agent Instances ==
     agents = {}
     initialization_tasks = []
     logger.info("Initializing Diplomacy Agents for each power...")
-    for power_name, model_id in game.power_model_map.items():
+    # Iterate through all powers defined in the game (e.g., "AUSTRIA", "ENGLAND", etc.)
+    for power_name in game.powers.keys():
         if not game.powers[power_name].is_eliminated(): # Only create for active powers initially
             try:
-                client = load_model_client(model_id)
+                # client = load_model_client(model_id) # Client loading removed
                 # TODO: Potentially load initial goals/relationships from config later
-                agent = DiplomacyAgent(power_name=power_name, client=client) 
+                agent = DiplomacyAgent(power_name=power_name) # No client passed
                 agents[power_name] = agent
-                logger.info(f"Preparing initialization task for {power_name} with model {model_id}")
-                # Pass log path to initialization
-                initialization_tasks.append(initialize_agent_state_ext(agent, game, game_history, llm_log_file_path))
+                logger.info(f"Preparing initialization task for {power_name}")
+                # Pass log path to initialization - initialize_agent_state_ext no longer takes llm_log_file_path
+                initialization_tasks.append(initialize_agent_state_ext(agent, game, game_history))
             except Exception as e:
-                logger.error(f"Failed to create agent or client for {power_name} with model {model_id}: {e}", exc_info=True)
+                logger.error(f"Failed to create agent for {power_name}: {e}", exc_info=True)
         else:
              logger.info(f"Skipping agent initialization for eliminated power: {power_name}")
     
@@ -227,10 +231,10 @@ async def main():
                     game,
                     agents,
                     game_history,
-                    model_error_stats,
+                    # model_error_stats, # Removed
                     max_rounds=args.num_negotiation_rounds,
                     # Pass log path
-                    log_file_path=llm_log_file_path,
+                    log_file_path=general_log_file_path, # Use general log for now, or None
                 )
             else:
                 logger.info("Skipping negotiation phase as num_negotiation_rounds=0")
@@ -238,42 +242,38 @@ async def main():
             # === Execute Planning Phase (if enabled) AFTER potential negotiations ===
             if args.planning_phase:
                 logger.info("Executing strategic planning phase...")
-                # NOTE: Assuming planning_phase needs modification to accept log_path
-                # We'll modify this call after checking planning.py
-                # Pass log path to planning
                 await planning_phase(
                     game,
                     agents,
                     game_history,
-                    model_error_stats, 
-                    log_file_path=llm_log_file_path,
+                    # model_error_stats, # Removed
+                    log_file_path=general_log_file_path, # Use general log for now, or None
                 )
             # ======================================================================
 
-            # === Generate Negotiation Diary Entries ===
-            logger.info(f"Generating negotiation diary entries for phase {current_short_phase}...")
-            
-            # Log active and eliminated powers for negotiation diary
-            active_powers_for_neg_diary = [p for p in agents.keys() if not game.powers[p].is_eliminated()]
-            eliminated_powers_for_neg_diary = [p for p in agents.keys() if game.powers[p].is_eliminated()]
-            
-            logger.info(f"Active powers for negotiation diary: {active_powers_for_neg_diary}")
-            if eliminated_powers_for_neg_diary:
-                logger.info(f"Eliminated powers (skipped): {eliminated_powers_for_neg_diary}")
-            
-            neg_diary_tasks = []
-            for power_name, agent in agents.items():
-                if not game.powers[power_name].is_eliminated():
-                    neg_diary_tasks.append(
-                        agent.generate_negotiation_diary_entry(
-                            game,
-                            game_history,
-                            llm_log_file_path
-                        )
-                    )
-            if neg_diary_tasks:
-                await asyncio.gather(*neg_diary_tasks, return_exceptions=True)
-            logger.info(f"Finished generating negotiation diary entries for {current_short_phase}.")
+            # === Generate Negotiation Diary Entries === (This was LLM-driven, remove/comment out)
+            # logger.info(f"Generating negotiation diary entries for phase {current_short_phase}...")
+            # active_powers_for_neg_diary = [p for p in agents.keys() if not game.powers[p].is_eliminated()]
+            # eliminated_powers_for_neg_diary = [p for p in agents.keys() if game.powers[p].is_eliminated()]
+            # logger.info(f"Active powers for negotiation diary: {active_powers_for_neg_diary}")
+            # if eliminated_powers_for_neg_diary:
+            #     logger.info(f"Eliminated powers (skipped): {eliminated_powers_for_neg_diary}")
+            # neg_diary_tasks = []
+            # human_player_name = "AUSTRIA" # Example, make configurable
+            # for power_name, agent in agents.items():
+            #     if not game.powers[power_name].is_eliminated() and power_name != human_player_name: # Skip for human
+            #         # This method was removed from agent.py
+            #         # neg_diary_tasks.append(
+            #         #     agent.generate_negotiation_diary_entry(
+            #         #         game,
+            #         #         game_history,
+            #         #         general_log_file_path
+            #         #     )
+            #         # )
+            #         pass # No LLM diary entries
+            # if neg_diary_tasks:
+            #     await asyncio.gather(*neg_diary_tasks, return_exceptions=True)
+            # logger.info(f"Finished generating negotiation diary entries for {current_short_phase}.")
             # ==========================================
 
         # AI Decision Making: Get orders for each power
@@ -317,89 +317,33 @@ async def main():
                 continue
 
             order_power_names.append(power_name)
-            # NOTE: get_valid_orders is in utils, we assume it calls client.get_orders
-            # Need to modify get_valid_orders signature in utils.py later
             
-            # Debug logging for diary
-            diary_preview = agent.format_private_diary_for_prompt()
-            logger.info(f"[{power_name}] Passing diary to get_valid_orders. Preview: {diary_preview[:200]}...")
-            
-            order_tasks.append(
-                get_valid_orders(
-                    # --- Positional Arguments --- 
-                    game,                    
-                    agent.client,            
-                    board_state,             
-                    power_name,              
-                    possible_orders,         
-                    game_history,            
-                    model_error_stats,       
-                    # --- Keyword Arguments --- 
-                    agent_goals=agent.goals,
-                    agent_relationships=agent.relationships,
-                    agent_private_diary_str=diary_preview,  # Fixed: Added missing diary parameter, now using pre-formatted value
-                    log_file_path=llm_log_file_path,
-                    phase=current_phase,     
-                )
-            )
-
-        # Run order generation concurrently
-        if order_tasks:
-            logger.debug(f"Running {len(order_tasks)} order generation tasks concurrently...")
-            order_results = await asyncio.gather(*order_tasks, return_exceptions=True)
-        else:
-            logger.debug("No order generation tasks to run.")
-            order_results = []
-
-        # Process order results and set them in the game
-        for i, result in enumerate(order_results):
-            p_name = order_power_names[i]
-            agent = agents[p_name] # Get agent for logging/stats if needed
-            model_name = agent.client.model_name
-
-            if isinstance(result, Exception):
-                logger.error(f"Error during get_valid_orders for {p_name}: {result}", exc_info=result)
-                # Log error stats (consider if fallback orders should be set here)
-                if model_name in model_error_stats:
-                    model_error_stats[model_name].setdefault("order_generation_errors", 0)
-                    model_error_stats[model_name]["order_generation_errors"] += 1
-                # Optionally set fallback orders here if needed, e.g., game.set_orders(p_name, []) or specific fallback
-                game.set_orders(p_name, []) # Set empty orders on error for now
-                logger.warning(f"Setting empty orders for {p_name} due to generation error.")
-            elif result is None:
-                # Handle case where get_valid_orders might theoretically return None
-                logger.warning(f"get_valid_orders returned None for {p_name}. Setting empty orders.")
-                game.set_orders(p_name, [])
-                if model_name in model_error_stats:
-                    model_error_stats[model_name].setdefault("order_generation_errors", 0)
-                    model_error_stats[model_name]["order_generation_errors"] += 1
-            else:
-                # Result is the list of validated orders
-                orders = result
-                logger.debug(f"Validated orders for {p_name}: {orders}")
+            # Determine if the current power is human or AI
+            # For now, let's assume a specific power is human, e.g., "AUSTRIA"
+            # This should ideally be configurable.
+            # human_player_name variable removed - all players are human
+            logger.info(f"Gathering orders for HUMAN player {power_name}...")
+            try:
+                # Call get_human_orders sequentially - no more asyncio.gather for orders
+                orders = get_human_orders(game, power_name, game_history)
+                logger.debug(f"Orders for {power_name}: {orders}")
                 if orders:
-                    game.set_orders(p_name, orders)
+                    game.set_orders(power_name, orders)
                     logger.debug(
-                        f"Set orders for {p_name} in {game.current_short_phase}: {orders}"
+                        f"Set orders for {power_name} in {game.current_short_phase}: {orders}"
                     )
-                    # === Generate Order Diary Entry ===
-                    # Call after orders are successfully set
-                    logger.info(f"Generating order diary entry for {p_name} for phase {current_short_phase}...")
-                    try:
-                        await agent.generate_order_diary_entry(
-                            game,
-                            orders, # Pass the confirmed orders
-                            llm_log_file_path
-                        )
-                        logger.info(f"Finished generating order diary entry for {p_name}.")
-                    except Exception as e_diary:
-                        logger.error(f"Error generating order diary for {p_name}: {e_diary}", exc_info=True)
-                    # =================================
                 else:
-                    logger.debug(f"No valid orders returned by get_valid_orders for {p_name}. Setting empty orders.")
-                    game.set_orders(p_name, []) # Set empty if get_valid_orders returned empty
+                    logger.debug(f"No orders returned for {power_name}. Setting empty orders.")
+                    game.set_orders(power_name, []) # Ensure empty orders if none given
+            except Exception as e_human:
+                logger.error(f"Error during get_human_orders for {power_name}: {e_human}", exc_info=True)
+                game.set_orders(power_name, []) # Set empty orders on error
+                logger.warning(f"Setting empty orders for {power_name} due to error in get_human_orders.")
 
-        # --- End Async Order Generation ---
+        # The order_tasks and asyncio.gather logic for orders is removed as calls are sequential.
+        # Processing of results is now handled directly after the call to get_human_orders.
+        logger.info("Finished gathering orders for all human players.")
+        # --- End Order Generation ---
 
         # Process orders
         logger.info(f"Processing orders for {current_phase}...")
@@ -591,152 +535,38 @@ async def main():
         for power_name, agent in agents.items():
             if not game.powers[power_name].is_eliminated():
                 phase_result_diary_tasks.append(
-                    agent.generate_phase_result_diary_entry(
-                        game,
-                        game_history,
-                        phase_summary,
-                        all_orders_this_phase,
-                        llm_log_file_path
-                    )
+                    # This method was removed from agent.py
+                    # agent.generate_phase_result_diary_entry(
+                    #     game,
+                    #     game_history,
+                    #     phase_summary,
+                    #     all_orders_this_phase,
+                    #     general_log_file_path
+                    # )
+                    pass # No LLM diary entries
                 )
         
-        if phase_result_diary_tasks:
-            logger.info(f"Running {len(phase_result_diary_tasks)} phase result diary tasks concurrently...")
-            await asyncio.gather(*phase_result_diary_tasks, return_exceptions=True)
-            logger.info(f"Finished generating phase result diary entries.")
-        # --- End Phase Result Diary Generation ---
+        # if phase_result_diary_tasks: # LLM related, tasks will be empty
+            # logger.info(f"Running {len(phase_result_diary_tasks)} phase result diary tasks concurrently...")
+            # await asyncio.gather(*phase_result_diary_tasks, return_exceptions=True) # LLM related
+            # logger.info(f"Finished generating phase result diary entries.")
+        logger.info("Skipping LLM-driven phase result diary entries.")
+        # --- End Phase Result Diary Generation (LLM-driven parts removed) ---
 
-        # --- Diary Consolidation Check ---
-        # After processing S1903M (or later), consolidate diary entries from 2 years ago
-        logger.info(f"[DIARY CONSOLIDATION] Checking consolidation for phase: {current_phase} (short: {current_short_phase})")
-        
-        # Try extracting from both phase formats to be safe
-        if len(current_short_phase) >= 6:  # e.g., "S1903M"
-            current_year_str = current_short_phase[1:5]
-            logger.info(f"[DIARY CONSOLIDATION] Extracting year from short phase: {current_short_phase}")
-        else:
-            current_year_str = current_phase[1:5]  # Extract year from phase
-            logger.info(f"[DIARY CONSOLIDATION] Extracting year from full phase: {current_phase}")
-            
-        logger.info(f"[DIARY CONSOLIDATION] Extracted year string: '{current_year_str}'")
-        
-        try:
-            current_year = int(current_year_str)
-            consolidation_year = current_year - 2  # Two years ago
-            logger.info(f"[DIARY CONSOLIDATION] Current year: {current_year}, Consolidation year: {consolidation_year}")
-            logger.info(f"[DIARY CONSOLIDATION] Phase check - ends with 'M': {current_short_phase.endswith('M')}, starts with 'S': {current_short_phase.startswith('S')}")
-            logger.info(f"[DIARY CONSOLIDATION] Consolidation year check: {consolidation_year} >= 1901: {consolidation_year >= 1901}")
-            
-            # Check if we need to consolidate (after spring movement phase)
-            if current_short_phase.endswith("M") and current_short_phase.startswith("S") and consolidation_year >= 1901:
-                logger.info(f"[DIARY CONSOLIDATION] TRIGGERING consolidation for year {consolidation_year} (current year: {current_year})")
-                
-                # Log active and eliminated powers for diary consolidation
-                active_powers_for_consolidation = [p for p in agents.keys() if not game.powers[p].is_eliminated()]
-                eliminated_powers_for_consolidation = [p for p in agents.keys() if game.powers[p].is_eliminated()]
-                
-                logger.info(f"[DIARY CONSOLIDATION] Active powers for consolidation: {active_powers_for_consolidation}")
-                if eliminated_powers_for_consolidation:
-                    logger.info(f"[DIARY CONSOLIDATION] Eliminated powers (skipped): {eliminated_powers_for_consolidation}")
-                
-                consolidation_tasks = []
-                for power_name, agent in agents.items():
-                    if not game.powers[power_name].is_eliminated():
-                        logger.info(f"[DIARY CONSOLIDATION] Adding consolidation task for {power_name}")
-                        consolidation_tasks.append(
-                            agent.consolidate_year_diary_entries(
-                                str(consolidation_year),
-                                game,
-                                llm_log_file_path
-                            )
-                        )
-                    else:
-                        logger.info(f"[DIARY CONSOLIDATION] Skipping eliminated power: {power_name}")
-                
-                if consolidation_tasks:
-                    logger.info(f"[DIARY CONSOLIDATION] Running {len(consolidation_tasks)} diary consolidation tasks...")
-                    await asyncio.gather(*consolidation_tasks, return_exceptions=True)
-                    logger.info("[DIARY CONSOLIDATION] Diary consolidation complete")
-                else:
-                    logger.warning("[DIARY CONSOLIDATION] No consolidation tasks to run")
-            else:
-                logger.info(f"[DIARY CONSOLIDATION] Conditions not met for consolidation - phase: {current_short_phase}, year: {current_year}")
-        except (ValueError, IndexError) as e:
-            logger.error(f"[DIARY CONSOLIDATION] ERROR: Could not parse year from phase {current_phase}: {e}")
-        except Exception as e:
-            logger.error(f"[DIARY CONSOLIDATION] UNEXPECTED ERROR: {e}", exc_info=True)
+        # --- Diary Consolidation Check --- (LLM-driven, all agent methods removed)
+        logger.info("Skipping LLM-driven diary consolidation.")
         # --- End Diary Consolidation ---
 
-        # --- Async State Update --- 
-        logger.info(f"Starting state update analysis for completed phase {completed_phase_name}...")
-        
-        # Phase summary is already retrieved above
-        if f"Summary for {current_phase} not found" in phase_summary:
-             logger.warning(phase_summary)
-
-        current_board_state = game.get_state() # State *after* processing
-
-        # Update state concurrently for active agents
-        active_agent_powers = [p for p in game.powers.items() if p[0] in agents and not p[1].is_eliminated()] # Filter for powers with active agents AND not eliminated
-        
-        # Log active and eliminated powers for state updates
-        active_powers_for_state_update = [p[0] for p in active_agent_powers]
-        eliminated_powers_for_state_update = [p for p in agents.keys() if game.powers[p].is_eliminated()]
-        
-        logger.info(f"Active powers for state update: {active_powers_for_state_update}")
-        if eliminated_powers_for_state_update:
-            logger.info(f"Eliminated powers (skipped): {eliminated_powers_for_state_update}")
-
-        if active_agent_powers: # Only run if there are agents to update
-             logger.info(f"Beginning concurrent state analysis for {len(active_agent_powers)} agents...")
-             
-             state_update_tasks = []
-             power_names_for_analysis = []
-
-             for power_name, _ in active_agent_powers:
-                  agent = agents[power_name]
-                  logger.debug(f"Preparing state analysis task for {power_name}")
-                  # Append the awaitable call
-                  state_update_tasks.append(
-                       agent.analyze_phase_and_update_state(
-                            game, 
-                            current_board_state, # Use state AFTER processing
-                            phase_summary, 
-                            game_history,
-                            llm_log_file_path,
-                       )
-                  )
-                  power_names_for_analysis.append(power_name)
-                  
-             # Run analysis tasks concurrently
-             if state_update_tasks:
-                  logger.debug(f"Running {len(state_update_tasks)} state analysis tasks concurrently...")
-                  analysis_results = await asyncio.gather(*state_update_tasks, return_exceptions=True)
-             else:
-                  analysis_results = []
-                  
-             # Process results (check for exceptions)
-             for i, result in enumerate(analysis_results):
-                 power_name = power_names_for_analysis[i]
-                 if isinstance(result, Exception):
-                      logger.error(f"Error during state analysis for {power_name}: {result}", exc_info=result)
-                      # Optionally log error stats here
-                 else:
-                      # Result is None if the function completes normally
-                      logger.debug(f"State analysis completed successfully for {power_name}.")
-
-             # === Populate relationship history for the completed phase ===
-             current_phase_name_for_history = completed_phase_name # Or game.current_short_phase if more appropriate
-             all_phase_relationships_history[current_phase_name_for_history] = {}
-             for power_name, agent_obj in agents.items():
+        # --- Async State Update --- (LLM-driven, all agent methods removed)
+        logger.info("Skipping LLM-driven agent state updates.")
+        # The all_phase_relationships_history can still be populated directly if desired,
+        # as it reads agent.relationships which can be manually updated by humans in future.
+        current_phase_name_for_history = completed_phase_name
+        all_phase_relationships_history[current_phase_name_for_history] = {}
+        for power_name, agent_obj in agents.items():
+            if not game.powers[power_name].is_eliminated(): # Only for active powers
                  all_phase_relationships_history[current_phase_name_for_history][power_name] = agent_obj.relationships.copy()
-             logger.info(f"Recorded relationships for phase {current_phase_name_for_history} into history.")
-             # ==========================================================
-
-             logger.info(f"Finished concurrent state analysis for {len(active_agent_powers)} agents.")
-             logger.info(f"Completed state update analysis for phase {completed_phase_name}.")
-        else:
-             logger.info(f"No active agents found to perform state update analysis for phase {completed_phase_name}.")
+        logger.info(f"Recorded relationships for phase {current_phase_name_for_history} into history.")
         # --- End Async State Update ---
 
         # Append the strategic directives to the manifesto file
@@ -824,13 +654,15 @@ async def main():
     with open(output_path, "w") as f:
         json.dump(saved_game, f, indent=4)
 
-    # Dump error stats and power model mapping to the overview file
+    # Dump overview file (args are still relevant)
     with open(overview_file_path, "w") as overview_file:
-        overview_file.write(json.dumps(model_error_stats) + "\n")
-        overview_file.write(json.dumps(game.power_model_map) + "\n")
-        overview_file.write(json.dumps(vars(args)) + "\n")
+        overview_data = {
+            "arguments": vars(args),
+            # Add any other non-LLM specific overview data if needed
+        }
+        overview_file.write(json.dumps(overview_data) + "\n")
 
-    logger.info(f"Saved game data, manifesto, and error stats in: {result_folder}")
+    logger.info(f"Saved game data, manifesto, and overview in: {result_folder}")
     logger.info("Done.")
 
 

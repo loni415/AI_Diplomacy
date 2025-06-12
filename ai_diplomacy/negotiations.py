@@ -6,8 +6,9 @@ from typing import Dict, TYPE_CHECKING
 from diplomacy.engine.message import Message, GLOBAL
 
 from .agent import DiplomacyAgent
-from .clients import load_model_client
-from .utils import gather_possible_orders, load_prompt
+# from .clients import load_model_client # Removed
+from .utils import gather_possible_orders # load_prompt removed as prompts are gone
+from .human_player_interface import send_human_messages
 
 if TYPE_CHECKING:
     from .game_history import GameHistory
@@ -24,8 +25,8 @@ async def conduct_negotiations(
     game: 'Game',
     agents: Dict[str, DiplomacyAgent],
     game_history: 'GameHistory',
-    model_error_stats: Dict[str, Dict[str, int]],
-    log_file_path: str,
+    # model_error_stats: Dict[str, Dict[str, int]], # Removed
+    log_file_path: Optional[str] = None, # Made optional, might not be needed if no LLM
     max_rounds: int = 3,
 ):
     """
@@ -60,108 +61,65 @@ async def conduct_negotiations(
             if power_name not in agents:
                 logger.warning(f"Agent for {power_name} not found in negotiations. Skipping.")
                 continue
-            agent = agents[power_name]
-            client = agent.client
-
-            possible_orders = gather_possible_orders(game, power_name)
-            if not possible_orders:
-                logger.info(f"No orderable locations for {power_name}; skipping message generation.")
+            if power_name not in agents:
+                logger.warning(f"Agent for {power_name} not found in negotiations. Skipping.")
                 continue
-            board_state = game.get_state()
 
-            # Append the coroutine to the tasks list
-            tasks.append(
-                client.get_conversation_reply(
-                    game,
-                    board_state,
-                    power_name,
-                    possible_orders,
-                    game_history,
-                    game.current_short_phase,
-                    log_file_path=log_file_path,
-                    active_powers=active_powers,
-                    agent_goals=agent.goals,
-                    agent_relationships=agent.relationships,
-                    agent_private_diary_str=agent.format_private_diary_for_prompt(),
-                )
-            )
-            power_names_for_tasks.append(power_name)
-            logger.debug(f"Prepared get_conversation_reply task for {power_name}.")
+            # human_player_name removed, all players are human and interact sequentially.
+            logger.info(f"Prompting HUMAN player {power_name} for messages...")
+            agent = agents.get(power_name)
 
-        # Run tasks concurrently if any were created
-        if tasks:
-            logger.debug(f"Running {len(tasks)} conversation tasks concurrently...")
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        else:
-            logger.debug("No conversation tasks to run for this round.")
-            results = []
+            try:
+                # Call send_human_messages directly and sequentially.
+                human_messages = send_human_messages(game, power_name, game_history, active_powers)
 
-        # Process results
-        for i, result in enumerate(results):
-            power_name = power_names_for_tasks[i]
-            agent = agents[power_name] # Get agent again for journaling
-            model_name = agent.client.model_name # Get model name for stats
-
-            if isinstance(result, Exception):
-                logger.error(f"Error getting conversation reply for {power_name}: {result}", exc_info=result)
-                # Use model_name for stats key if possible
-                if model_name in model_error_stats:
-                     model_error_stats[model_name]["conversation_errors"] += 1
-                else: # Fallback to power_name if model name not tracked (shouldn't happen)
-                     model_error_stats.setdefault(power_name, {}).setdefault("conversation_errors", 0)
-                     model_error_stats[power_name]["conversation_errors"] += 1
-                messages = [] # Treat as no messages on error
-            elif result is None: # Handle case where client might return None on internal error
-                 logger.warning(f"Received None instead of messages for {power_name}.")
-                 messages = []
-                 if model_name in model_error_stats:
-                      model_error_stats[model_name]["conversation_errors"] += 1
-                 else:
-                      model_error_stats.setdefault(power_name, {}).setdefault("conversation_errors", 0)
-                      model_error_stats[power_name]["conversation_errors"] += 1
-            else:
-                messages = result # result is the list of message dicts
-                logger.debug(f"Received {len(messages)} message(s) from {power_name}.")
-
-            # Process the received messages (same logic as before)
-            if messages:
-                for message in messages:
-                    # Validate message structure
-                    if not isinstance(message, dict) or "content" not in message:
-                        logger.warning(f"Invalid message format received from {power_name}: {message}. Skipping.")
-                        continue
-
-                    # Create an official message in the Diplomacy engine
-                    # Determine recipient based on message type
-                    if message.get("message_type") == "private":
-                        recipient = message.get("recipient", GLOBAL) # Default to GLOBAL if recipient missing somehow
-                        if recipient not in game.powers and recipient != GLOBAL:
-                            logger.warning(f"Invalid recipient '{recipient}' in message from {power_name}. Sending globally.")
-                            recipient = GLOBAL # Fallback to GLOBAL if recipient power is invalid
-                    else: # Assume global if not private or type is missing
-                        recipient = GLOBAL
+                # Process messages immediately
+                if human_messages:
+                    for message_dict in human_messages:
+                        if not isinstance(message_dict, dict) or "content" not in message_dict or "recipient" not in message_dict:
+                            logger.warning(f"Invalid message format received from {power_name}: {message_dict}. Skipping.")
+                            continue
                         
-                    diplo_message = Message(
-                        phase=game.current_short_phase,
-                        sender=power_name,
-                        recipient=recipient, # Use determined recipient
-                        message=message.get("content", ""), # Use .get for safety
-                        time_sent=None, # Let the engine assign time
-                    )
-                    game.add_message(diplo_message)
-                    # Also add to our custom history
-                    game_history.add_message(
-                        game.current_short_phase,
-                        power_name,
-                        recipient, # Use determined recipient here too
-                        message.get("content", ""), # Use .get for safety
-                    )
-                    journal_recipient = f"to {recipient}" if recipient != GLOBAL else "globally"
-                    agent.add_journal_entry(f"Sent message {journal_recipient} in {game.current_short_phase}: {message.get('content', '')[:100]}...")
-                    logger.info(f"[{power_name} -> {recipient}] {message.get('content', '')[:100]}...")
-            else:
-                logger.debug(f"No valid messages returned or error occurred for {power_name}.")
-                # Error stats handled above based on result type
+                        recipient = message_dict.get("recipient", GLOBAL)
+                        content = message_dict.get("content", "")
+
+                        # Fallback logic for invalid recipient to GLOBAL is removed.
+                        # send_human_messages should now ensure recipient is valid or GLOBAL.
+                        # The check for message_type != "private" and recipient != GLOBAL can remain as a warning if a non-private message has a specific recipient.
+                        if message_dict.get("message_type") != "private" and recipient != GLOBAL:
+                             if recipient != GLOBAL :
+                                 logger.warning(f"Message to specific power {recipient} from {power_name} was not marked 'private' (should be 'global' if recipient is GLOBAL, or 'private' otherwise). Assuming private for specific recipient based on context.")
+                                 # No change to recipient, assume it was intended as private.
+                                 # If it was meant to be GLOBAL, send_human_messages should have set recipient to "GLOBAL".
+
+                        diplo_message = Message(
+                            phase=game.current_short_phase,
+                            sender=power_name,
+                            recipient=recipient,
+                            message=content,
+                            time_sent=None,
+                        )
+                        game.add_message(diplo_message)
+                        game_history.add_message(
+                            game.current_short_phase,
+                            power_name,
+                            recipient,
+                            content,
+                        )
+
+                        if agent:
+                            journal_recipient = f"to {recipient}" if recipient != GLOBAL else "globally"
+                            agent.add_journal_entry(f"Sent message {journal_recipient} in {game.current_short_phase}: {content[:100]}...")
+                        logger.info(f"[{power_name} -> {recipient}] {content[:100]}...")
+                else:
+                    logger.debug(f"No messages sent by {power_name} in round {round_index + 1}.")
+
+            except Exception as e_human_msg:
+                logger.error(f"Error during send_human_messages for {power_name}: {e_human_msg}", exc_info=True)
+                # Optionally, add a journal entry or some other indicator of error for this power.
+
+        # asyncio.gather and related logic for tasks/results removed as calls are now sequential.
+        logger.info(f"Finished message round {round_index + 1} for all human players.")
 
     logger.info("Negotiation phase complete.")
     return game_history

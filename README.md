@@ -109,7 +109,6 @@ graph TB
     GAME_ENGINE --> GH
     GAME_ENGINE --> PS
 
-
     %% Styling
     classDef gameState fill:#e74c3c,stroke:#333,stroke-width:2px,color:#fff
     classDef agentState fill:#3498db,stroke:#333,stroke-width:2px,color:#fff
@@ -117,7 +116,6 @@ graph TB
     classDef userInputs fill:#f39c12,stroke:#333,stroke-width:2px,color:#fff
     classDef contextDisplay fill:#9b59b6,stroke:#333,stroke-width:2px,color:#fff
     classDef gameEngine fill:#7f8c8d,stroke:#333,stroke-width:2px,color:#fff
-
 
     class GS,GH,PS gameState
     class AGENT_GOALS,AGENT_REL,AGENT_JOURNAL,AGENT_DIARY agentState

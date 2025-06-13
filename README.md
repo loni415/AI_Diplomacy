@@ -47,47 +47,68 @@ The following diagram illustrates the information flow for a game played by huma
 ```mermaid
 graph TB
 
-    %% Game State Sources
-    subgraph "Game State Information"
-        GS[Game State<br/>- Unit Positions<br/>- Supply Centers<br/>- Power Status]
-        GH[Game History<br/>- Past Orders<br/>- Past Messages<br/>- Phase Results<br/>- Player Plans]
-        PS[Phase Summary<br/>- Successful Moves<br/>- Failed Moves<br/>- Board Changes]
-    end
+    %% Define all nodes first (optional, but can help clarity)
+    %% Nodes for Game State Information
+    GS[Game State<br/>- Unit Positions<br/>- Supply Centers<br/>- Power Status]
+    GH[Game History<br/>- Past Orders<br/>- Past Messages<br/>- Phase Results<br/>- Player Plans]
+    PHASE_SUMMARY[Phase Summary<br/>- Successful Moves<br/>- Failed Moves<br/>- Board Changes]
 
-    %% Agent Internal State (Simplified)
-    subgraph "Agent State (DiplomacyAgent)"
-        AGENT_GOALS[User-Defined Goals]
-        AGENT_REL[User-Defined Relationships]
-        AGENT_JOURNAL[Private Journal<br/>(Manual User Notes)]
-        AGENT_DIARY[Private Diary<br/>(Manual User Notes)]
-    end
+    %% Nodes for Agent State
+    AGENT_GOALS[User-Defined Goals]
+    AGENT_REL[User-Defined Relationships]
+    AGENT_JOURNAL[Private Journal<br/>(Manual User Notes)]
+    AGENT_DIARY[Private Diary<br/>(Manual User Notes)]
 
-    %% Human Player Interaction
-    subgraph "Human Player Interface (`human_player_interface.py`)"
-        HPI[Human Input Module<br/>- Displays Game Info<br/>- Prompts for Decisions]
-    end
+    %% Nodes for Human Player Interface
+    HPI[Human Input Module<br/>- Displays Game Info<br/>- Prompts for Decisions]
 
-    %% User Decision Inputs
-    subgraph "User Decision Inputs"
-        USER_ORDERS[User Enters Orders]
-        USER_MESSAGES[User Sends Messages]
-        USER_PLANS[User Defines Plans]
-    end
+    %% Nodes for User Decision Inputs
+    USER_ORDERS[User Enters Orders]
+    USER_MESSAGES[User Sends Messages]
+    USER_PLANS[User Defines Plans]
 
-    %% Supporting Context for User
-    subgraph "Context for Human Player"
-        POSSIBLE_ORDERS_CTX[Possible Order Context<br/>(Displayed to User)]
-    end
+    %% Nodes for Context for Human Player
+    POSSIBLE_ORDERS_CTX[Possible Order Context<br/>(Displayed to User)]
 
-    %% Nodes not in subgraphs (defined before flows for clarity)
+    %% Nodes for Core Game Engine
     GAME_ENGINE[Game Engine<br/>(Processes Orders, Updates State)]
     UTILS_GATHER_ORDERS[utils.gather_possible_orders]
     game_messages[Game Messages Log]
 
+    %% Group nodes into subgraphs
+    subgraph "Game State Information"
+        GS
+        GH
+        PHASE_SUMMARY
+    end
+
+    subgraph "Agent State (DiplomacyAgent)"
+        AGENT_GOALS
+        AGENT_REL
+        AGENT_JOURNAL
+        AGENT_DIARY
+    end
+
+    subgraph "Human Player Interface (`human_player_interface.py`)"
+        HPI
+    end
+
+    subgraph "User Decision Inputs"
+        USER_ORDERS
+        USER_MESSAGES
+        USER_PLANS
+    end
+
+    subgraph "Context for Human Player"
+        POSSIBLE_ORDERS_CTX
+    end
+
+    %% Links remain outside subgraphs if they connect different entities
     %% Information Flow
     GS --> HPI
     GH --> HPI
-    PS --> HPI
+    PHASE_SUMMARY --> HPI
+
     GS --> UTILS_GATHER_ORDERS
     UTILS_GATHER_ORDERS --> POSSIBLE_ORDERS_CTX
     POSSIBLE_ORDERS_CTX --> HPI
@@ -103,7 +124,7 @@ graph TB
 
     GAME_ENGINE --> GS
     GAME_ENGINE --> GH
-    GAME_ENGINE --> PS
+    GAME_ENGINE --> PHASE_SUMMARY
 
     %% Styling
     classDef gameState fill:#e74c3c,stroke:#333,stroke-width:2px,color:#fff
@@ -113,7 +134,7 @@ graph TB
     classDef contextDisplay fill:#9b59b6,stroke:#333,stroke-width:2px,color:#fff
     classDef gameEngine fill:#7f8c8d,stroke:#333,stroke-width:2px,color:#fff
 
-    class GS,GH,PS gameState
+    class GS,GH,PHASE_SUMMARY gameState
     class AGENT_GOALS,AGENT_REL,AGENT_JOURNAL,AGENT_DIARY agentState
     class HPI humanInterface
     class USER_ORDERS,USER_MESSAGES,USER_PLANS userInputs

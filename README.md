@@ -46,6 +46,7 @@ The following diagram illustrates the information flow for a game played by huma
 
 ```mermaid
 graph TB
+
     %% Game State Sources
     subgraph "Game State Information"
         GS[Game State<br/>- Unit Positions<br/>- Supply Centers<br/>- Power Status]
@@ -66,6 +67,7 @@ graph TB
         HPI[Human Input Module<br/>- Displays Game Info<br/>- Prompts for Decisions]
     end
 
+    %% User Decision Inputs
     subgraph "User Decision Inputs"
         USER_ORDERS[User Enters Orders]
         USER_MESSAGES[User Sends Messages]
@@ -77,34 +79,28 @@ graph TB
         POSSIBLE_ORDERS_CTX[Possible Order Context<br/>(Displayed to User)]
     end
 
-    %% Core Game Engine (Conceptual)
+    %% Nodes not in subgraphs (defined before flows for clarity)
     GAME_ENGINE[Game Engine<br/>(Processes Orders, Updates State)]
+    UTILS_GATHER_ORDERS[utils.gather_possible_orders]
+    game_messages[Game Messages Log]
 
     %% Information Flow
-
-    %% Game Info to Human Interface
     GS --> HPI
     GH --> HPI
     PS --> HPI
-    GS --> UTILS_GATHER_ORDERS[utils.gather_possible_orders]
+    GS --> UTILS_GATHER_ORDERS
     UTILS_GATHER_ORDERS --> POSSIBLE_ORDERS_CTX
     POSSIBLE_ORDERS_CTX --> HPI
 
-    %% Human Decisions via Interface
     HPI --> USER_ORDERS
     HPI --> USER_MESSAGES
     HPI --> USER_PLANS
 
-    %% User Decisions into the Game
     USER_ORDERS -->|Set by lm_game.py| GAME_ENGINE
     USER_MESSAGES -->|Added by negotiations.py| GH
-    USER_MESSAGES -->|Added by negotiations.py| game_messages[Game Messages Log]
+    USER_MESSAGES -->|Added by negotiations.py| game_messages
     USER_PLANS -->|Added by planning.py| GH
 
-    %% Agent state can be manually updated by user (conceptual, not direct system link for now)
-    %% AGENT_GOALS, AGENT_REL, AGENT_JOURNAL, AGENT_DIARY are part of the 'agents' dict in lm_game.py
-
-    %% Game Engine updates Game State
     GAME_ENGINE --> GS
     GAME_ENGINE --> GH
     GAME_ENGINE --> PS

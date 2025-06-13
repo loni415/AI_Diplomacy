@@ -47,20 +47,20 @@ The following diagram illustrates the information flow for a game played by huma
 ```mermaid
 graph TB
 
-    %% Define all nodes first (optional, but can help clarity)
+    %% Define all nodes first
     %% Nodes for Game State Information
-    GS[Game State<br/>- Unit Positions<br/>- Supply Centers<br/>- Power Status]
-    GH[Game History<br/>- Past Orders<br/>- Past Messages<br/>- Phase Results<br/>- Player Plans]
-    PHASE_SUMMARY[Phase Summary<br/>- Successful Moves<br/>- Failed Moves<br/>- Board Changes]
+    GS[Game State<br/>(Unit Positions)<br/>(Supply Centers)<br/>(Power Status)]
+    GH[Game History<br/>(Past Orders)<br/>(Past Messages)<br/>(Phase Results)<br/>(Player Plans)]
+    PHASE_SUMMARY[Phase Summary<br/>(Successful Moves)<br/>(Failed Moves)<br/>(Board Changes)]
 
     %% Nodes for Agent State
     AGENT_GOALS[User-Defined Goals]
     AGENT_REL[User-Defined Relationships]
-    AGENT_JOURNAL[Private Journal<br/>(Manual User Notes)]
-    AGENT_DIARY[Private Diary<br/>(Manual User Notes)]
+    AGENT_JOURNAL[Private Journal (Manual User Notes)]
+    AGENT_DIARY[Private Diary (Manual User Notes)]
 
     %% Nodes for Human Player Interface
-    HPI[Human Input Module<br/>- Displays Game Info<br/>- Prompts for Decisions]
+    HPI[Human Input Module (`human_player_interface.py`)<br/>(Displays Game Info)<br/>(Prompts for Decisions)]
 
     %% Nodes for User Decision Inputs
     USER_ORDERS[User Enters Orders]
@@ -68,10 +68,10 @@ graph TB
     USER_PLANS[User Defines Plans]
 
     %% Nodes for Context for Human Player
-    POSSIBLE_ORDERS_CTX[Possible Order Context<br/>(Displayed to User)]
+    POSSIBLE_ORDERS_CTX[Possible Order Context (Displayed to User)]
 
     %% Nodes for Core Game Engine
-    GAME_ENGINE[Game Engine<br/>(Processes Orders, Updates State)]
+    GAME_ENGINE[Game Engine (Processes Orders, Updates State)]
     UTILS_GATHER_ORDERS[utils.gather_possible_orders]
     game_messages[Game Messages Log]
 
